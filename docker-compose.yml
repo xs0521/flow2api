@@ -9,7 +9,6 @@ services:
     volumes:
       - ./data:/app/data
       - ./tmp:/app/tmp
-      - ./config/setting.toml:/app/config/setting.toml
     environment:
       - PYTHONUNBUFFERED=1
     restart: unless-stopped
