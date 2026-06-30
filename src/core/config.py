@@ -1,9 +1,10 @@
 """Configuration management for Flow2API"""
+import os
 import tomli
 from pathlib import Path
 from typing import Dict, Any, Optional
 
-DEFAULT_YESCAPTCHA_TASK_TYPE = "RecaptchaV3TaskProxylessM1"
+DEFAULT_YESCAPTCHA_TASK_TYPE = "RecaptchaV3TaskProxylessM1S9"
 YESCAPTCHA_TASK_TYPE_OPTIONS = {
     "RecaptchaV3TaskProxyless": None,
     "RecaptchaV3TaskProxylessM1": None,
@@ -35,8 +36,23 @@ class Config:
         """Load configuration from setting.toml, falling back to the example file."""
         config_dir = Path(__file__).parent.parent.parent / "config"
         config_path = config_dir / "setting.toml"
-        if not config_path.exists():
-            config_path = config_dir / "setting_example.toml"
+        fallback_path = config_dir / "setting_example.toml"
+
+        if config_path.exists() and not config_path.is_file():
+            print(
+                f"[Config] 检测到 {config_path} 不是普通文件，"
+                f"将回退到 {fallback_path.name}。请检查 Docker 挂载或本地配置路径。"
+            )
+            config_path = fallback_path
+        elif not config_path.exists():
+            config_path = fallback_path
+
+        if not config_path.is_file():
+            raise FileNotFoundError(
+                f"配置文件不存在或不可读取: {config_path}. "
+                f"请确认 config 目录下存在可用的 setting.toml 或 setting_example.toml"
+            )
+
         with open(config_path, "rb") as f:
             return tomli.load(f)
 
@@ -438,8 +454,26 @@ class Config:
             return 600
 
     @property
+    def browser_captcha_max_retries(self) -> int:
+        """browser 模式单次打码最大重试次数。"""
+        value = self._config.get("captcha", {}).get("browser_captcha_max_retries", 5)
+        try:
+            return max(1, min(20, int(value)))
+        except Exception:
+            return 5
+
+    @property
+    def browser_captcha_generation_retries(self) -> int:
+        """生成接口因 reCAPTCHA 评估失败时允许的总重试次数。"""
+        value = self._config.get("captcha", {}).get("browser_captcha_generation_retries", 6)
+        try:
+            return max(1, min(20, int(value)))
+        except Exception:
+            return 6
+
+    @property
     def personal_max_resident_tabs(self) -> int:
-        """内置浏览器打码的共享标签页上限"""
+        """内置浏览器打码单实例共享标签页上限"""
         value = self._config.get("captcha", {}).get("personal_max_resident_tabs", 5)
         try:
             return max(1, min(50, int(value)))  # 限制在1-50之间
@@ -464,8 +498,16 @@ class Config:
         except Exception:
             return 600
 
+    @property
+    def personal_headless(self) -> bool:
+        """personal 内置浏览器是否强制无头；默认按有头模式运行。"""
+        env_value = os.getenv("PERSONAL_BROWSER_HEADLESS")
+        if env_value is not None:
+            return str(env_value).strip().lower() in {"1", "true", "yes", "on"}
+        return bool(self._config.get("captcha", {}).get("personal_headless", False))
+
     def set_personal_max_resident_tabs(self, value: int):
-        """设置内置浏览器打码的共享标签页上限"""
+        """设置内置浏览器打码单实例共享标签页上限"""
         if "captcha" not in self._config:
             self._config["captcha"] = {}
         self._config["captcha"]["personal_max_resident_tabs"] = max(1, min(50, int(value)))
